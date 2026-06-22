@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "id": "hermes-webui",
+  "title": "Hermes",
+  "description": "Hermes AI partner web console managed by OpenHouseAI.",
+  "kind": "ai-partner",
+  "version": "0.1.0-openhouse",
+  "shellMenu": {
+    "visible": true,
+    "section": "ai",
+    "order": 40,
+    "entry": {
+      "type": "webview",
+      "url": "http://127.0.0.1:23084"
+    },
+    "controlEntry": {
+      "type": "service-control",
+      "serviceNames": ["hermes-webui"],
+      "serviceRefs": ["service-manager://services/hermes-webui"]
+    }
+  },
+  "smallphoneApp": {
+    "visible": true,
+    "section": "ai",
+    "order": 40,
+    "icon": "sparkles",
+    "entry": {
+      "type": "webview",
+      "url": "http://127.0.0.1:23084"
+    },
+    "controlEntry": {
+      "type": "service-control",
+      "serviceNames": ["hermes-webui"],
+      "serviceRefs": ["service-manager://services/hermes-webui"]
+    }
+  },
+  "serviceManager": {
+    "required": true,
+    "services": [
+      {
+        "name": "hermes-webui",
+        "title": "Hermes WebUI",
+        "role": "web",
+        "port": 23084,
+        "url": "http://127.0.0.1:23084",
+        "serviceRef": "service-manager://services/hermes-webui",
+        "health": {
+          "type": "http",
+          "url": "http://127.0.0.1:23084/health"
+        },
+        "controls": ["status", "start", "stop", "restart", "logs", "repair"],
+        "repairActionRef": "service-manager://actions/hermes-webui.repair"
+      }
+    ]
+  },
+  "ai": {
+    "visible": true,
+    "summaryDoc": "openhouse.ai.md",
+    "capabilities": "capabilities.json",
+    "intents": [
+      { "name": "open", "target": "shellMenu.entry" },
+      { "name": "control", "target": "shellMenu.controlEntry" },
+      { "name": "repair", "target": "serviceManager.services.hermes-webui.repairActionRef" }
+    ]
+  },
+  "ports": [
+    {
+      "name": "web",
+      "host": "127.0.0.1",
+      "port": 23084,
+      "url": "http://127.0.0.1:23084"
+    }
+  ],
+  "tags": ["group:local-stack", "openhouse-component:hermes-webui", "openhouse-ai-partner:hermes"]
+}

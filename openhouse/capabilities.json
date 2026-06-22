@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "componentId": "hermes-webui",
+  "title": "Hermes",
+  "entry": {
+    "type": "webview",
+    "url": "http://127.0.0.1:23084"
+  },
+  "services": [
+    {
+      "name": "hermes-webui",
+      "serviceRef": "service-manager://services/hermes-webui",
+      "controls": {
+        "status": "service-manager://services/hermes-webui/status",
+        "start": "service-manager://services/hermes-webui/start",
+        "stop": "service-manager://services/hermes-webui/stop",
+        "restart": "service-manager://services/hermes-webui/restart",
+        "logs": "service-manager://services/hermes-webui/logs",
+        "repair": "service-manager://actions/hermes-webui.repair"
+      }
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "ai-partner-web-console",
+      "title": "Hermes WebUI",
+      "description": "Open, configure, and use Hermes through the managed WebUI."
+    },
+    {
+      "id": "service-control",
+      "title": "Managed lifecycle",
+      "description": "Lifecycle control is delegated to service-manager."
+    }
+  ]
+}

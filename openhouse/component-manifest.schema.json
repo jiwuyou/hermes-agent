@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openhouse.ai/schemas/component-manifest.schema.json",
+  "title": "OpenHouseAI Component Manifest",
+  "description": "Schema for component manifests stored in components.d/*.json. The executable field ban in this schema applies only to component manifests; bootstrap manifests and service-manager ServiceSpec documents use separate schemas and may define args or command where required.",
+  "type": "object",
+  "allOf": [
+    { "$ref": "#/$defs/noExecutableKeys" }
+  ],
+  "required": ["schemaVersion", "id", "title", "kind", "shellMenu", "smallphoneApp", "serviceManager", "ai"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "kind": { "type": "string", "minLength": 1 },
+    "version": { "type": "string" },
+    "shellMenu": {
+      "type": "object",
+      "required": ["visible", "entry"],
+      "properties": {
+        "visible": { "type": "boolean" },
+        "section": { "type": "string" },
+        "order": { "type": "integer" },
+        "entry": { "$ref": "#/$defs/entry" },
+        "controlEntry": { "$ref": "#/$defs/controlEntry" }
+      }
+    },
+    "smallphoneApp": {
+      "type": "object",
+      "required": ["visible", "entry"],
+      "properties": {
+        "visible": { "type": "boolean" },
+        "section": { "type": "string" },
+        "order": { "type": "integer" },
+        "icon": { "type": "string" },
+        "entry": { "$ref": "#/$defs/entry" },
+        "controlEntry": { "$ref": "#/$defs/controlEntry" }
+      }
+    },
+    "serviceManager": {
+      "type": "object",
+      "required": ["services"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "serviceRef", "controls"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "title": { "type": "string" },
+              "role": { "type": "string" },
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "url": { "type": "string" },
+              "serviceRef": { "type": "string", "pattern": "^service-manager://services/" },
+              "health": { "type": "object" },
+              "controls": {
+                "type": "array",
+                "items": { "enum": ["status", "start", "stop", "restart", "logs", "repair"] }
+              },
+              "repairActionRef": { "type": "string", "pattern": "^service-manager://actions/[^/]+\\.repair$" }
+            }
+          }
+        }
+      }
+    },
+    "ai": {
+      "type": "object",
+      "required": ["visible", "summaryDoc", "capabilities"],
+      "properties": {
+        "visible": { "type": "boolean" },
+        "summaryDoc": { "type": "string" },
+        "capabilities": { "type": "string" },
+        "intents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "target"],
+            "properties": {
+              "name": { "type": "string" },
+              "target": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "ports": { "type": "array" },
+    "paths": { "type": "object" },
+    "tags": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["webview", "native-page", "terminal"] },
+        "url": { "type": "string" },
+        "page": { "type": "string" }
+      }
+    },
+    "controlEntry": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "service-control" },
+        "serviceNames": { "type": "array", "items": { "type": "string" } },
+        "serviceRefs": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^service-manager://services/" }
+        }
+      }
+    },
+    "noExecutableKeys": {
+      "if": { "type": "object" },
+      "then": {
+        "propertyNames": {
+          "not": { "enum": ["command", "shell", "script", "args"] }
+        },
+        "additionalProperties": { "$ref": "#/$defs/noExecutableKeys" }
+      },
+      "else": {
+        "if": { "type": "array" },
+        "then": {
+          "items": { "$ref": "#/$defs/noExecutableKeys" }
+        }
+      }
+    }
+  }
+}
