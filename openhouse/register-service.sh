@@ -49,7 +49,6 @@ venv_python="${HERMES_WEBUI_PYTHON:-$agent_dir/venv/bin/python}"
 webui_host="${HERMES_WEBUI_HOST:-127.0.0.1}"
 webui_port="${HERMES_WEBUI_PORT:-23084}"
 workspace_root="${HERMES_WEBUI_DEFAULT_WORKSPACE:-/root}"
-start_script="$openhouse_dir/start-hermes-webui.sh"
 server_script="$webui_dir/server.py"
 sm_url="${SERVICE_MANAGER_URL:-${SMALLPHONE_SERVICE_MANAGER_URL:-http://127.0.0.1:20087}}"
 registry_apply_path="${OPENHOUSEAI_REGISTRY_APPLY_PATH:-/api/v1/registry/apply}"
@@ -110,11 +109,6 @@ validate_runtime_inputs() {
   [ -f "$webui_dir/bootstrap.py" ] || die "missing Hermes WebUI bootstrap.py: $webui_dir/bootstrap.py"
   [ -f "$server_script" ] || die "missing Hermes WebUI server.py: $server_script"
   [ -x "$venv_python" ] || die "Hermes Python is missing; run install first: $venv_python"
-  [ -x "$start_script" ] || die "Hermes foreground wrapper is missing or not executable: $start_script"
-  grep -Fq 'OPENHOUSE_FOREGROUND_WRAPPER=hermes-webui-v1' "$start_script" \
-    || die "Hermes foreground wrapper missing OpenHouse contract marker: $start_script"
-  grep -Fq 'exec -a "$exec_argv0" "$venv_python" "$server_path"' "$start_script" \
-    || die "Hermes foreground wrapper must end by execing the long-running server with stable argv: $start_script"
   [ -f "$component_source" ] || die "missing project component manifest source: $component_source"
   [ -f "$ai_doc_source" ] || die "missing project AI doc source: $ai_doc_source"
   [ -f "$capabilities_source" ] || die "missing project capabilities source: $capabilities_source"
@@ -165,11 +159,11 @@ PY
 validate_service_registry() {
   py="$1"
   service_file="$2"
-  "$py" - "$service_file" "$start_script" "$server_script" <<'PY'
+  "$py" - "$service_file" "$venv_python" "$server_script" <<'PY'
 import json
 import sys
 
-path, start_script, server_script = sys.argv[1:]
+path, venv_python, server_script = sys.argv[1:]
 with open(path, "r", encoding="utf-8") as handle:
     doc = json.load(handle)
 
@@ -184,11 +178,11 @@ if service.get("name") != "hermes-webui":
 command = service.get("command")
 if not isinstance(command, list) or not command:
     raise SystemExit("service-manager ServiceSpec must contain service.command; this is allowed outside component manifests")
-expected_command = [start_script, server_script]
+expected_command = [venv_python, server_script]
 if command != expected_command:
     raise SystemExit(
-        "hermes-webui service.command must use the OpenHouse foreground wrapper "
-        f"with stable argv: expected {expected_command!r}, got {command!r}"
+        "hermes-webui service.command must launch the real foreground Python server "
+        f"argv: expected {expected_command!r}, got {command!r}"
     )
 if any("bootstrap.py" in str(item) for item in command):
     raise SystemExit("hermes-webui service.command must not launch bootstrap.py under service-manager")
@@ -323,7 +317,7 @@ emit_spec() {
   py="$1"
   "$py" - "$svc_name" "$svc_desc" "$webui_dir" "$agent_dir" "$venv_python" \
     "$hermes_home" "$webui_host" "$webui_port" "$workspace_root" "$openhouse_dir" \
-    "$start_script" "$server_script" <<'PY'
+    "$server_script" <<'PY'
 import json
 import sys
 
@@ -338,7 +332,6 @@ import sys
     webui_port,
     workspace_root,
     openhouse_dir,
-    start_script,
     server_script,
 ) = sys.argv[1:]
 
@@ -347,7 +340,7 @@ spec = {
     "description": svc_desc,
     "provider": "process",
     "command": [
-        start_script,
+        venv_python,
         server_script,
     ],
     "working_dir": workspace_root,

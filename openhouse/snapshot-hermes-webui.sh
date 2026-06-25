@@ -50,7 +50,6 @@ venv_dir="$(cd "$(dirname "$venv_python")/.." >/dev/null 2>&1 && pwd)"
 webui_host="${HERMES_WEBUI_HOST:-127.0.0.1}"
 webui_port="${HERMES_WEBUI_PORT:-23084}"
 workspace_root="${HERMES_WEBUI_DEFAULT_WORKSPACE:-/root}"
-start_script="$openhouse_dir/start-hermes-webui.sh"
 server_script="$webui_dir/server.py"
 config_dir="${OPENHOUSEAI_CONFIG_DIR:-$home_dir/.config/openhouseai}"
 service_registry_dir="${OPENHOUSEAI_SERVICE_REGISTRY_DIR:-$config_dir/service-manager/services.d}"
@@ -65,11 +64,6 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 [ -f "$server_script" ] || die "missing Hermes WebUI server.py: $server_script"
 [ -x "$venv_python" ] || die "missing executable Hermes venv python: $venv_python"
 [ -d "$venv_dir" ] || die "missing Hermes venv directory: $venv_dir"
-[ -x "$start_script" ] || die "missing executable Hermes foreground wrapper: $start_script"
-grep -Fq 'OPENHOUSE_FOREGROUND_WRAPPER=hermes-webui-v1' "$start_script" \
-  || die "Hermes foreground wrapper missing OpenHouse contract marker: $start_script"
-grep -Fq 'exec -a "$exec_argv0" "$venv_python" "$server_path"' "$start_script" \
-  || die "Hermes foreground wrapper must exec the long-running server with stable argv: $start_script"
 [ -f "$service_registry_file" ] || die "missing service registry JSON: $service_registry_file"
 command -v curl >/dev/null 2>&1 || die "curl is required for WebUI health check"
 command -v tar >/dev/null 2>&1 || die "tar is required for snapshot archives"
@@ -77,11 +71,11 @@ command -v tar >/dev/null 2>&1 || die "tar is required for snapshot archives"
 curl -fsS --max-time 3 "http://$webui_host:$webui_port/health" >/dev/null \
   || die "Hermes WebUI health check failed: http://$webui_host:$webui_port/health"
 
-"$venv_python" - "$agent_dir" "$service_registry_file" "$start_script" "$server_script" <<'PY'
+"$venv_python" - "$agent_dir" "$service_registry_file" "$venv_python" "$server_script" <<'PY'
 import json
 import sys
 
-agent_dir, service_registry_file, start_script, server_script = sys.argv[1:]
+agent_dir, service_registry_file, venv_python, server_script = sys.argv[1:]
 sys.path.insert(0, agent_dir)
 
 import yaml  # noqa: F401
@@ -100,10 +94,10 @@ if service.get("name") != "hermes-webui":
 command = service.get("command")
 if not isinstance(command, list) or not command:
     raise SystemExit("service.command must be a non-empty argv")
-expected_command = [start_script, server_script]
+expected_command = [venv_python, server_script]
 if command != expected_command:
     raise SystemExit(
-        "service.command must use the Hermes foreground wrapper with stable argv: "
+        "service.command must launch the real foreground Python server argv: "
         f"expected {expected_command!r}, got {command!r}"
     )
 if any("bootstrap.py" in str(item) for item in command):

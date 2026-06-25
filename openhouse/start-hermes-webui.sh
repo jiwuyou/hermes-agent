@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# OPENHOUSE_FOREGROUND_WRAPPER=hermes-webui-v1
-# This script is the stable service-manager argv.  It must finish with an
-# exec that preserves argv[0], otherwise the process provider will reject the
-# live PID as a cmdline mismatch after the shell is replaced.
+# OPENHOUSE_FOREGROUND_START=hermes-webui-v2
+# Manual foreground launcher for Hermes WebUI. service-manager registers the
+# real long-running argv directly: venv/bin/python server.py. Do not override
+# argv0 here; Python uses argv[0] to resolve the venv/site-packages.
 
 log() {
   printf '[OpenHouse Hermes Start] %s\n' "$*"
@@ -91,7 +91,6 @@ workspace_root="${HERMES_WEBUI_DEFAULT_WORKSPACE:-/root}"
 server_cwd="${HERMES_WEBUI_SERVER_CWD:-$workspace_root}"
 state_dir="${HERMES_WEBUI_STATE_DIR:-$hermes_home/webui}"
 server_path="${1:-$webui_dir/server.py}"
-exec_argv0="$0"
 
 [ -d "$agent_dir" ] || die "missing Hermes Agent directory: $agent_dir"
 [ -f "$agent_dir/pyproject.toml" ] || die "missing Hermes Agent pyproject.toml: $agent_dir/pyproject.toml"
@@ -117,4 +116,4 @@ export PYTHONPATH="$agent_dir${PYTHONPATH:+:$PYTHONPATH}"
 
 cd "$server_cwd" || die "could not chdir to server cwd: $server_cwd"
 log "exec Hermes WebUI server on http://$webui_host:$webui_port"
-exec -a "$exec_argv0" "$venv_python" "$server_path"
+exec "$venv_python" "$server_path"
