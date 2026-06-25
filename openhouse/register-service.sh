@@ -49,6 +49,8 @@ venv_python="${HERMES_WEBUI_PYTHON:-$agent_dir/venv/bin/python}"
 webui_host="${HERMES_WEBUI_HOST:-127.0.0.1}"
 webui_port="${HERMES_WEBUI_PORT:-23084}"
 workspace_root="${HERMES_WEBUI_DEFAULT_WORKSPACE:-/root}"
+start_script="$openhouse_dir/start-hermes-webui.sh"
+server_script="$webui_dir/server.py"
 sm_url="${SERVICE_MANAGER_URL:-${SMALLPHONE_SERVICE_MANAGER_URL:-http://127.0.0.1:20087}}"
 registry_apply_path="${OPENHOUSEAI_REGISTRY_APPLY_PATH:-/api/v1/registry/apply}"
 svc_name="hermes-webui"
@@ -106,7 +108,13 @@ validate_runtime_inputs() {
   [ -f "$agent_dir/pyproject.toml" ] || die "missing Hermes Agent pyproject.toml: $agent_dir/pyproject.toml"
   [ -d "$webui_dir" ] || die "missing Hermes WebUI directory: $webui_dir"
   [ -f "$webui_dir/bootstrap.py" ] || die "missing Hermes WebUI bootstrap.py: $webui_dir/bootstrap.py"
+  [ -f "$server_script" ] || die "missing Hermes WebUI server.py: $server_script"
   [ -x "$venv_python" ] || die "Hermes Python is missing; run install first: $venv_python"
+  [ -x "$start_script" ] || die "Hermes foreground wrapper is missing or not executable: $start_script"
+  grep -Fq 'OPENHOUSE_FOREGROUND_WRAPPER=hermes-webui-v1' "$start_script" \
+    || die "Hermes foreground wrapper missing OpenHouse contract marker: $start_script"
+  grep -Fq 'exec -a "$exec_argv0" "$venv_python" "$server_path"' "$start_script" \
+    || die "Hermes foreground wrapper must end by execing the long-running server with stable argv: $start_script"
   [ -f "$component_source" ] || die "missing project component manifest source: $component_source"
   [ -f "$ai_doc_source" ] || die "missing project AI doc source: $ai_doc_source"
   [ -f "$capabilities_source" ] || die "missing project capabilities source: $capabilities_source"
@@ -157,11 +165,11 @@ PY
 validate_service_registry() {
   py="$1"
   service_file="$2"
-  "$py" - "$service_file" <<'PY'
+  "$py" - "$service_file" "$start_script" "$server_script" <<'PY'
 import json
 import sys
 
-path = sys.argv[1]
+path, start_script, server_script = sys.argv[1:]
 with open(path, "r", encoding="utf-8") as handle:
     doc = json.load(handle)
 
@@ -176,6 +184,22 @@ if service.get("name") != "hermes-webui":
 command = service.get("command")
 if not isinstance(command, list) or not command:
     raise SystemExit("service-manager ServiceSpec must contain service.command; this is allowed outside component manifests")
+expected_command = [start_script, server_script]
+if command != expected_command:
+    raise SystemExit(
+        "hermes-webui service.command must use the OpenHouse foreground wrapper "
+        f"with stable argv: expected {expected_command!r}, got {command!r}"
+    )
+if any("bootstrap.py" in str(item) for item in command):
+    raise SystemExit("hermes-webui service.command must not launch bootstrap.py under service-manager")
+repair = service.get("repair")
+if not isinstance(repair, dict):
+    raise SystemExit("service-manager ServiceSpec must contain repair hook for hermes-webui")
+if repair.get("mode") != "hook":
+    raise SystemExit("service-manager ServiceSpec repair.mode must be hook")
+repair_command = repair.get("command")
+if not isinstance(repair_command, list) or not repair_command:
+    raise SystemExit("service-manager ServiceSpec repair.command must be a non-empty argv")
 PY
 }
 
@@ -298,7 +322,8 @@ PY
 emit_spec() {
   py="$1"
   "$py" - "$svc_name" "$svc_desc" "$webui_dir" "$agent_dir" "$venv_python" \
-    "$hermes_home" "$webui_host" "$webui_port" "$workspace_root" <<'PY'
+    "$hermes_home" "$webui_host" "$webui_port" "$workspace_root" "$openhouse_dir" \
+    "$start_script" "$server_script" <<'PY'
 import json
 import sys
 
@@ -312,6 +337,9 @@ import sys
     webui_host,
     webui_port,
     workspace_root,
+    openhouse_dir,
+    start_script,
+    server_script,
 ) = sys.argv[1:]
 
 spec = {
@@ -319,18 +347,13 @@ spec = {
     "description": svc_desc,
     "provider": "process",
     "command": [
-        venv_python,
-        "./bootstrap.py",
-        "--no-browser",
-        "--foreground",
-        "--skip-agent-install",
-        "--host",
-        webui_host,
-        str(webui_port),
+        start_script,
+        server_script,
     ],
-    "working_dir": webui_dir,
+    "working_dir": workspace_root,
     "env": {
         "HERMES_HOME": hermes_home,
+        "HERMES_AGENT_DIR": agent_dir,
         "HERMES_WEBUI_AGENT_DIR": agent_dir,
         "HERMES_WEBUI_PYTHON": venv_python,
         "HERMES_WEBUI_HOST": webui_host,
@@ -340,10 +363,30 @@ spec = {
         "HERMES_WEBUI_SERVER_CWD": workspace_root,
         "HERMES_WEBUI_AUTO_INSTALL": "0",
         "HERMES_WEBUI_SKIP_ONBOARDING": "0",
+        "HERMES_WEBUI_FOREGROUND": "1",
+        "PYTHONPATH": agent_dir,
         "PATH": "/root/.local/bin:/root/.local/node/bin:/root/.npm-global/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/system/bin:/system/xbin:/data/data/com.termux/files/usr/bin",
     },
     "runtime": {},
     "restart": {"mode": "always", "max_retries": 0},
+    "repair": {
+        "mode": "hook",
+        "command": [
+            "bash",
+            f"{openhouse_dir}/repair-hermes-webui.sh",
+        ],
+        "working_dir": openhouse_dir,
+        "timeout": "10m",
+        "env": {
+            "HERMES_AGENT_DIR": agent_dir,
+            "HERMES_WEBUI_DIR": webui_dir,
+            "HERMES_WEBUI_PYTHON": venv_python,
+            "HERMES_HOME": hermes_home,
+            "HERMES_WEBUI_HOST": webui_host,
+            "HERMES_WEBUI_PORT": str(webui_port),
+            "HERMES_WEBUI_DEFAULT_WORKSPACE": workspace_root,
+        },
+    },
     "health": [
         {
             "type": "http",

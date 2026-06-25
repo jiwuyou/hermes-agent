@@ -43,6 +43,8 @@ hermes_home="${HERMES_HOME:-$home_dir/.hermes}"
 venv_python="${HERMES_WEBUI_PYTHON:-$agent_dir/venv/bin/python}"
 webui_port="${HERMES_WEBUI_PORT:-23084}"
 webui_host="${HERMES_WEBUI_HOST:-127.0.0.1}"
+start_script="$openhouse_dir/start-hermes-webui.sh"
+server_script="$webui_dir/server.py"
 config_dir="${OPENHOUSEAI_CONFIG_DIR:-$home_dir/.config/openhouseai}"
 manifest="$config_dir/components.d/hermes-webui.json"
 service_registry="$config_dir/service-manager/services.d/hermes-webui.json"
@@ -56,7 +58,13 @@ termux_config_dir="${OPENHOUSEAI_TERMUX_CONFIG_DIR:-$termux_home/.config/openhou
 [ -f "$agent_dir/pyproject.toml" ] || { warn "missing Hermes Agent pyproject.toml"; exit 2; }
 [ -d "$webui_dir" ] || { warn "missing Hermes WebUI directory: $webui_dir"; exit 2; }
 [ -f "$webui_dir/bootstrap.py" ] || { warn "missing Hermes WebUI bootstrap.py"; exit 2; }
+[ -f "$server_script" ] || { warn "missing Hermes WebUI server.py"; exit 2; }
 [ -x "$venv_python" ] || { warn "missing Hermes Python: $venv_python"; exit 3; }
+[ -x "$start_script" ] || { warn "missing executable Hermes foreground wrapper: $start_script"; exit 4; }
+grep -Fq 'OPENHOUSE_FOREGROUND_WRAPPER=hermes-webui-v1' "$start_script" \
+  || { warn "Hermes foreground wrapper missing OpenHouse contract marker: $start_script"; exit 4; }
+grep -Fq 'exec -a "$exec_argv0" "$venv_python" "$server_path"' "$start_script" \
+  || { warn "Hermes foreground wrapper must exec the long-running server with stable argv: $start_script"; exit 4; }
 [ -f "$manifest" ] || { warn "missing component manifest: $manifest"; exit 4; }
 [ -f "$service_registry" ] || { warn "missing service-manager registry: $service_registry"; exit 4; }
 [ -f "$ai_doc" ] || { warn "missing AI doc: $ai_doc"; exit 4; }
@@ -73,12 +81,21 @@ import yaml  # noqa: F401
 from run_agent import AIAgent  # noqa: F401
 PY
 
-"$venv_python" - "$manifest" "$service_registry" "$capabilities" "$component_schema" "$termux_config_dir" <<'PY'
+"$venv_python" - "$manifest" "$service_registry" "$capabilities" "$component_schema" \
+  "$termux_config_dir" "$start_script" "$server_script" <<'PY'
 import json
 import pathlib
 import sys
 
-component_path, service_path, capabilities_path, schema_path, termux_config_dir = sys.argv[1:]
+(
+    component_path,
+    service_path,
+    capabilities_path,
+    schema_path,
+    termux_config_dir,
+    start_script,
+    server_script,
+) = sys.argv[1:]
 for path in (component_path, service_path, capabilities_path, schema_path):
     with open(path, "r", encoding="utf-8") as f:
         json.load(f)
@@ -121,6 +138,20 @@ if service.get("name") != "hermes-webui":
     raise SystemExit("service registry service.name must be hermes-webui")
 if not isinstance(service.get("command"), list) or not service.get("command"):
     raise SystemExit("service-manager ServiceSpec must keep service.command; forbidden-key policy is component-manifest only")
+expected_command = [start_script, server_script]
+if service.get("command") != expected_command:
+    raise SystemExit(
+        "service-manager ServiceSpec service.command must use the Hermes foreground wrapper "
+        f"with stable argv: expected {expected_command!r}, got {service.get('command')!r}"
+    )
+if any("bootstrap.py" in str(item) for item in service.get("command", [])):
+    raise SystemExit("service-manager ServiceSpec service.command must not launch bootstrap.py under service-manager")
+repair = service.get("repair")
+if not isinstance(repair, dict) or repair.get("mode") != "hook":
+    raise SystemExit("service-manager ServiceSpec must keep repair.mode=hook")
+repair_command = repair.get("command")
+if not isinstance(repair_command, list) or not repair_command:
+    raise SystemExit("service-manager ServiceSpec repair.command must be a non-empty argv")
 
 termux_root = pathlib.Path(termux_config_dir)
 if termux_root.exists():
@@ -138,6 +169,13 @@ PY
 log "Hermes sources, Python imports, four-layer component manifest, service registry, AI docs, and registry sync are valid."
 if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 2 "http://$webui_host:$webui_port/health" >/dev/null 2>&1; then
   log "Hermes WebUI is healthy at http://$webui_host:$webui_port"
+  if [ -x "$openhouse_dir/snapshot-hermes-webui.sh" ]; then
+    if "$openhouse_dir/snapshot-hermes-webui.sh" >/dev/null 2>&1; then
+      log "Hermes WebUI last-known-good snapshot is available."
+    else
+      warn "Hermes WebUI is healthy, but last-known-good snapshot creation failed."
+    fi
+  fi
 else
   log "Hermes WebUI is installed but not currently reachable at http://$webui_host:$webui_port"
 fi
